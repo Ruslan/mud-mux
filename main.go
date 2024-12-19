@@ -57,6 +57,22 @@ func (m *MUX) connectToMUD() error {
 	return nil
 }
 
+func (m *MUX) readFromMUD() {
+	buf := make([]byte, 4096)
+	for {
+		n, err := m.mudConn.Read(buf)
+		if err != nil {
+			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+				continue
+			}
+			m.logger.Printf("Error reading from MUD: %v", err)
+			return
+		}
+		m.logger.Printf("MUD -> Clients: %s", buf[:n])
+		m.broadcastToClients(buf[:n])
+	}
+}
+
 func (m *MUX) handleClient(clientConn net.Conn) {
 	m.mu.Lock()
 	m.clients = append(m.clients, clientConn)
@@ -77,41 +93,23 @@ func (m *MUX) handleClient(clientConn net.Conn) {
 
 	m.logger.Printf("New client connected: %s", clientConn.RemoteAddr())
 
-	go func() {
-		buf := make([]byte, 4096)
-		for {
-			n, err := clientConn.Read(buf)
-			if err != nil {
-				if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
-					continue
-				}
-				m.logger.Printf("Error reading from client: %v", err)
-				return
+	buf := make([]byte, 4096)
+	for {
+		n, err := clientConn.Read(buf)
+		if err != nil {
+			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+				continue
 			}
-			m.logger.Printf("Client -> MUD: %s", buf[:n])
-			_, err = m.mudConn.Write(buf[:n])
-			if err != nil {
-				m.logger.Printf("Error sending to MUD: %v", err)
-				return
-			}
+			m.logger.Printf("Error reading from client: %v", err)
+			return
 		}
-	}()
-
-	go func() {
-		buf := make([]byte, 4096)
-		for {
-			n, err := m.mudConn.Read(buf)
-			if err != nil {
-				if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
-					continue
-				}
-				m.logger.Printf("Error reading from MUD: %v", err)
-				return
-			}
-			m.logger.Printf("MUD -> Client: %s", buf[:n])
-			m.broadcastToClients(buf[:n])
+		m.logger.Printf("Client -> MUD: %s", buf[:n])
+		_, err = m.mudConn.Write(buf[:n])
+		if err != nil {
+			m.logger.Printf("Error sending to MUD: %v", err)
+			return
 		}
-	}()
+	}
 }
 
 func (m *MUX) broadcastToClients(data []byte) {
@@ -130,6 +128,8 @@ func (m *MUX) start() error {
 		return err
 	}
 	defer m.mudConn.Close()
+
+	go m.readFromMUD()
 
 	listener, err := net.Listen("tcp", m.localAddr)
 	if err != nil {
