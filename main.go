@@ -174,10 +174,14 @@ func (m *MUX) disconnectAllClients() {
 }
 
 func main() {
-	mudAddr := flag.String("mud", "muds.example.com:23", "MUD server address (host:port)")
+	mudAddr := flag.String("mud", "", "MUD server address (host:port)")
 	localAddr := flag.String("local", ":8888", "Local listening address (host:port)")
 	logFile := flag.String("log", "log/game.log", "Log file path (optional, enables logging with rotation)")
 	flag.Parse()
+
+	if *mudAddr == "" {
+		log.Fatal("Usage: mud-mux -mud server:port")
+	}
 
 	mux := NewMUX(*mudAddr, *localAddr, *logFile)
 	if err := mux.start(); err != nil {
